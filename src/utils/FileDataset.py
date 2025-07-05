@@ -5,7 +5,7 @@ import pyarrow as pa
 
 
 # https://apxml.com/courses/advanced-pytorch/chapter-3-optimization-training-strategies/large-dataset-strategies
-class FileDataloader(Dataset):
+class FileDataloader(IterableDataset):
     def __init__(self, file_path):
         super().__init__()
         if (Path(file_path).suffix == '.parquet' or
@@ -24,14 +24,13 @@ class FileDataloader(Dataset):
     def _get_records_iterator(self):
         # Replace this with logic to iterate over your specific data
         for batch in pq.ParquetFile(self.file_path).iter_batches(1):
-            # yield self.dataScaler.transform(batch.to_tensor().to_numpy())
-            yield (batch.select(self.columns).to_tensor().to_numpy(),
-                   batch.select([self.label]).to_pandas().to_numpy())
+            # yield (batch.select(self.columns).to_tensor().to_numpy(),
+            #        batch.select([self.label]).to_pandas().to_numpy())
+            yield batch.select(self.columns).to_tensor().to_numpy(), batch.select([self.label]).to_pandas().to_numpy()
 
     def __iter__(self):
         worker_info = get_worker_info()
-        record_iterator = self._get_records_iterator()
-        print(record_iterator)
+        record_iterator, label = zip(*self._get_records_iterator())
         if worker_info is None:  # Single-process loading
             worker_id = 0
             num_workers = 1
@@ -41,7 +40,9 @@ class FileDataloader(Dataset):
 
         # Basic worker sharding: each worker processes every Nth record
         # Sophisticated sharding might involve byte offsets or file splitting
-        sharded_iterator = (record for i, record in enumerate(record_iterator)
+        sharded_iterator = ((record,
+                             label[i][0][0]
+                             ) for i, record in enumerate(record_iterator)
                             if i % num_workers == worker_id)
 
         # Apply processing within the worker's iterator chain
